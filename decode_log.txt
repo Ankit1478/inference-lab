@@ -1,0 +1,158 @@
+
+mlx-community/Llama-3.2-3B-Instruct-4bit
+
+KNOWN
+  Mac             114 GB/s memory, 5.6 TFLOPS compute
+  Model size      1.81 GB  (read once per step, shared by all users)
+  Decode params   3.21B  -> FLOPs per user per step = 2 x 3.21B = 6.4 GFLOP
+  KV per token    0.115 MB  (each user has their own)
+  Switch point    5.6T / 114G = 49 FLOPs per byte
+  Per user        2 x params / model size = 3.6 FLOPs per byte (4-bit)
+  Switch users    49 / 3.6 = ~14 users  <- after this, compute-bound
+
+UNKNOWN (measured vs maths)
+
+--- 1 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 1 x 0.115 MB x 118 = 1.82 GB
+  Memory time       = bytes read / memory speed
+                    = 1.82 GB / 114 GB/s = 16.0 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 1 / 5.6T = 1.1 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 16.0 ms  -> memory-bound
+  Real step time    = measured with stopwatch = 18.0 ms
+  Total tok/s       = users / step time
+                    maths 1 / 0.0160 = 63  | real 1 / 0.0180 = 55
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0160 = 62.6  | real 1 / 0.0180 = 55.5
+  Real vs maths     = maths step time / real step time = 89%
+  KV cache total    = users x KV per token x tokens
+                    = 1 x 0.115 MB x 118 = 0.014 GB
+  Peak memory       = measured = 1.86 GB
+
+--- 2 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 2 x 0.115 MB x 118 = 1.83 GB
+  Memory time       = bytes read / memory speed
+                    = 1.83 GB / 114 GB/s = 16.1 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 2 / 5.6T = 2.3 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 16.1 ms  -> memory-bound
+  Real step time    = measured with stopwatch = 21.2 ms
+  Total tok/s       = users / step time
+                    maths 2 / 0.0161 = 124  | real 2 / 0.0212 = 94
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0161 = 62.1  | real 1 / 0.0212 = 47.2
+  Real vs maths     = maths step time / real step time = 76%
+  KV cache total    = users x KV per token x tokens
+                    = 2 x 0.115 MB x 118 = 0.027 GB
+  Peak memory       = measured = 1.92 GB
+
+--- 4 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 4 x 0.115 MB x 118 = 1.86 GB
+  Memory time       = bytes read / memory speed
+                    = 1.86 GB / 114 GB/s = 16.3 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 4 / 5.6T = 4.6 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 16.3 ms  -> memory-bound
+  Real step time    = measured with stopwatch = 28.5 ms
+  Total tok/s       = users / step time
+                    maths 4 / 0.0163 = 245  | real 4 / 0.0285 = 141
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0163 = 61.2  | real 1 / 0.0285 = 35.1
+  Real vs maths     = maths step time / real step time = 57%
+  KV cache total    = users x KV per token x tokens
+                    = 4 x 0.115 MB x 118 = 0.054 GB
+  Peak memory       = measured = 2.04 GB
+
+--- 8 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 8 x 0.115 MB x 118 = 1.92 GB
+  Memory time       = bytes read / memory speed
+                    = 1.92 GB / 114 GB/s = 16.8 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 8 / 5.6T = 9.2 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 16.8 ms  -> memory-bound
+  Real step time    = measured with stopwatch = 52.4 ms
+  Total tok/s       = users / step time
+                    maths 8 / 0.0168 = 476  | real 8 / 0.0524 = 153
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0168 = 59.5  | real 1 / 0.0524 = 19.1
+  Real vs maths     = maths step time / real step time = 32%
+  KV cache total    = users x KV per token x tokens
+                    = 8 x 0.115 MB x 118 = 0.108 GB
+  Peak memory       = measured = 2.26 GB
+
+--- 16 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 16 x 0.115 MB x 118 = 2.02 GB
+  Memory time       = bytes read / memory speed
+                    = 2.02 GB / 114 GB/s = 17.8 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 16 / 5.6T = 18.4 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 18.4 ms  -> COMPUTE-BOUND
+  Real step time    = measured with stopwatch = 92.0 ms
+  Total tok/s       = users / step time
+                    maths 16 / 0.0184 = 872  | real 16 / 0.0920 = 174
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0184 = 54.5  | real 1 / 0.0920 = 10.9
+  Real vs maths     = maths step time / real step time = 20%
+  KV cache total    = users x KV per token x tokens
+                    = 16 x 0.115 MB x 118 = 0.217 GB
+  Peak memory       = measured = 2.76 GB
+
+--- 32 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 32 x 0.115 MB x 118 = 2.24 GB
+  Memory time       = bytes read / memory speed
+                    = 2.24 GB / 114 GB/s = 19.7 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 32 / 5.6T = 36.7 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 36.7 ms  -> COMPUTE-BOUND
+  Real step time    = measured with stopwatch = 97.0 ms
+  Total tok/s       = users / step time
+                    maths 32 / 0.0367 = 872  | real 32 / 0.0970 = 330
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0367 = 27.2  | real 1 / 0.0970 = 10.3
+  Real vs maths     = maths step time / real step time = 38%
+  KV cache total    = users x KV per token x tokens
+                    = 32 x 0.115 MB x 118 = 0.433 GB
+  Peak memory       = measured = 3.75 GB
+
+--- 64 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 1.81 GB + 64 x 0.115 MB x 118 = 2.67 GB
+  Memory time       = bytes read / memory speed
+                    = 2.67 GB / 114 GB/s = 23.5 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 3.21B x 64 / 5.6T = 73.4 ms
+  Maths step time   = bigger of memory time and compute time
+                    = 73.4 ms  -> COMPUTE-BOUND
+  Real step time    = measured with stopwatch = 151.9 ms
+  Total tok/s       = users / step time
+                    maths 64 / 0.0734 = 872  | real 64 / 0.1519 = 421
+  Per user tok/s    = 1 / step time
+                    maths 1 / 0.0734 = 13.6  | real 1 / 0.1519 = 6.6
+  Real vs maths     = maths step time / real step time = 48%
+  KV cache total    = users x KV per token x tokens
+                    = 64 x 0.115 MB x 118 = 0.866 GB
+  Peak memory       = measured = 5.42 GB
+
+SUMMARY   (vs 1 user = total tok/s / total tok/s with 1 user)
+  users | step ms  maths | total tok/s | per user | vs 1 user | peak GB | bound
+      1 |    18.0   16.0 |          55 |     55.5 |      1.0x |    1.86 | memory-bound
+      2 |    21.2   16.1 |          94 |     47.2 |      1.7x |    1.92 | memory-bound
+      4 |    28.5   16.3 |         141 |     35.1 |      2.5x |    2.04 | memory-bound
+      8 |    52.4   16.8 |         153 |     19.1 |      2.8x |    2.26 | memory-bound
+     16 |    92.0   18.4 |         174 |     10.9 |      3.1x |    2.76 | COMPUTE-BOUND
+     32 |    97.0   36.7 |         330 |     10.3 |      5.9x |    3.75 | COMPUTE-BOUND
+     64 |   151.9   73.4 |         421 |      6.6 |      7.6x |    5.42 | COMPUTE-BOUND
+
+Saved batch_log.txt

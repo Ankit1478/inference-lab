@@ -1,4 +1,5 @@
-"""Run a model, measure TTFT / decode speed / memory, compare with the maths.
+"""PREFILL test (1 user): TTFT for different prompt lengths.
+Also shows decode speed for 1 user. For many users, see decode.py.
 
 KNOWN    Mac speeds, config (layers, hidden, KV heads, head size, FFN),
          model size, prefill params, KV per token
@@ -18,8 +19,8 @@ OUTPUT (M5 Mac, Llama 3.2 3B 4-bit)
         2000 |   1.64s   2.01s |    44.4    56.0 |        90 |    2.68
         4000 |   3.57s   4.03s |    41.5    50.3 |        94 |    2.89
 
-    ./venv/bin/python bench.py
-    ./venv/bin/python bench.py --model mlx-community/Meta-Llama-3-8B-Instruct-4bit
+    ./venv/bin/python prefill.py
+    ./venv/bin/python prefill.py --model mlx-community/Meta-Llama-3-8B-Instruct-4bit
 """
 import argparse, csv, time
 import mlx.core as mx
@@ -65,8 +66,9 @@ def run(prompt_len):
     mx.reset_peak_memory()
     start, ttft = time.perf_counter(), None
     for out in stream_generate(model, tokenizer, all_tokens[:prompt_len], max_tokens=args.output):
-        if ttft is None:
+        if ttft is None:                                # PREFILL done: whole prompt read, first token out
             ttft = time.perf_counter() - start
+                                                        # DECODE: rest of the tokens, one by one
     return ttft, out
 
 run(100)  # warm up
@@ -79,8 +81,10 @@ for prompt_len in map(int, args.prompts.split(",")):
     bytes_per_step = model_size + kv_per_token * prompt_len
     row = dict(
         prompt=prompt_len,
+        # PREFILL (1 user)
         ttft=round(ttft, 2),
         ttft_maths=round(2 * prefill_params * prompt_len / COMPUTE_SPEED, 2),
+        # DECODE (1 user)
         decode=round(out.generation_tps, 1),
         decode_maths=round(MEMORY_SPEED / bytes_per_step, 1),
         gbps_used=round(bytes_per_step * out.generation_tps / 1e9),
@@ -90,8 +94,8 @@ for prompt_len in map(int, args.prompts.split(",")):
     print(f"  {row['prompt']:>6} | {row['ttft']:>6}s {row['ttft_maths']:>6}s | {row['decode']:>7} {row['decode_maths']:>7} "
           f"| {row['gbps_used']:>9} | {row['peak_gb']:>7}")
 
-with open("results.csv", "w", newline="") as f:
+with open("prefill_results.csv", "w", newline="") as f:
     w = csv.DictWriter(f, fieldnames=rows[0])
     w.writeheader()
     w.writerows(rows)
-print("\nSaved results.csv")
+print("\nSaved prefill_results.csv")
