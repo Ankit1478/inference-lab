@@ -94,8 +94,9 @@ for prompt_len in map(int, args.prompts.split(",")):
     print(f"  {row['prompt']:>6} | {row['ttft']:>6}s {row['ttft_maths']:>6}s | {row['decode']:>7} {row['decode_maths']:>7} "
           f"| {row['gbps_used']:>9} | {row['peak_gb']:>7}")
 
-with open("prefill_results.csv", "w", newline="") as f:
+out_file = f"prefill_{args.model.split('/')[-1]}.csv"   # one file per model
+with open(out_file, "w", newline="") as f:
     w = csv.DictWriter(f, fieldnames=rows[0])
     w.writeheader()
     w.writerows(rows)
-print("\nSaved prefill_results.csv")
+print(f"\nSaved {out_file}")

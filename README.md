@@ -13,7 +13,7 @@ python3 -m venv venv && ./venv/bin/pip install mlx-lm
 
 | File | Tests | Output |
 |---|---|---|
-| `prefill.py` | Prefill (TTFT) at 100–4,000 tokens, plus decode for 1 user | `prefill_results.csv` |
+| `prefill.py` | Prefill (TTFT) at 100–4,000 tokens, plus decode for 1 user | `prefill_<model>.csv` |
 | `decode.py` | Decode with 1–64 users (batching, switch point) | `decode_log.txt` |
 
 ### Results (1,000-token prompt)
@@ -41,3 +41,17 @@ python3 -m venv venv && ./venv/bin/pip install mlx-lm
 - More users → more total tokens/s (weights read once, shared), less per user.
 - Switch point in users = 49 FLOPs/byte ÷ 3.6 (4-bit) ≈ 14 users.
 - 4–16 users run well below the maths: MLX's small-batch 4-bit kernel doesn't share the weight read well. Full log: `decode_log.txt`.
+
+### 4-bit vs 8-bit (Llama 3.2 3B, 1,000-token prompt)
+
+| | 4-bit | 8-bit |
+|---|---|---|
+| Model size | 1.81 GB | 3.41 GB |
+| TTFT | 0.80 s | 0.86 s |
+| Decode (maths / real) | 59 / 52 tok/s | 32 / 32 tok/s |
+| Memory speed used | 101 GB/s | 112 GB/s |
+| Peak memory | 2.4 GB | 4.0 GB |
+
+- Decode ≈ memory speed ÷ model size: 1.9× bigger model → 1.6× slower decode.
+- TTFT barely changes: prefill is compute-bound, same maths in both.
+- 4-bit gains less than 2×: it spends extra work turning 4-bit numbers back into 16-bit (dequantize).
