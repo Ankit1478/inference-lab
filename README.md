@@ -55,3 +55,55 @@ python3 -m venv venv && ./venv/bin/pip install mlx-lm
 - Decode ≈ memory speed ÷ model size: 1.9× bigger model → 1.6× slower decode.
 - TTFT barely changes: prefill is compute-bound, same maths in both.
 - 4-bit gains less than 2×: it spends extra work turning 4-bit numbers back into 16-bit (dequantize).
+
+## Phase 2: NVIDIA L4 GPU (Google Cloud, 300 GB/s, 121 TFLOPS 16-bit)
+
+Llama 3 8B Instruct, 16-bit (16.06 GB), vLLM 0.33.
+
+```bash
+uv venv ~/venv --python 3.12 && source ~/venv/bin/activate && uv pip install vllm
+export VLLM_USE_FLASHINFER_SAMPLER=0
+python gpu_prefill.py      # TTFT at 100–4,000 tokens, plus decode for 1 user
+python gpu_decode.py       # 1 to 128 users
+```
+
+| File | Tests | Output |
+|---|---|---|
+| `gpu_prefill.py` | Prefill (TTFT) + decode for 1 user | `gpu_prefill_<model>.csv` |
+| `gpu_decode.py` | Decode with 1–128 users | `gpu_decode_log.txt` |
+
+### Prefill (1 user)
+
+| Prompt | TTFT maths | TTFT real | Decode maths | Decode real | Memory speed used |
+|---|---|---|---|---|---|
+| 100 | 0.012 s | 0.076 s | 18.7 | 16.9 tok/s | 271 GB/s |
+| 1,000 | 0.115 s | 0.32 s | 18.5 | 16.8 tok/s | 271 GB/s |
+| 4,000 | 0.461 s | 1.21 s | 18.1 | 16.3 tok/s | 271 GB/s |
+
+- Decode hits ~90% of the maths: 271 of 300 GB/s used (MBU ≈ 90%).
+- Prefill reaches only ~46 TFLOPS of 121 (MFU ≈ 40%). Likely the 72 W power limit lowering clocks, plus non-matmul work (attention, norms) the maths skips.
+- Short prompts: even prefill must read all 16 GB once (≈ 53 ms), so TTFT for 100 tokens is memory-bound.
+
+### Decode with many users
+
+| Users | Step time (maths / real) | Total tok/s (maths / real) | Per user tok/s |
+|---|---|---|---|
+| 1 | 54 / 59 ms | 19 / 17 | 16.9 |
+| 8 | 54 / 61 ms | 148 / 132 | 16.5 |
+| 32 | 55 / 69 ms | 580 / 465 | 14.5 |
+| 128 | 60 / 80 ms | 2,135 / 1,597 | 12.5 |
+
+- 1 → 128 users: step time only 59 → 80 ms, total tok/s 17 → 1,597 (94×).
+- Still memory-bound at 128: switch point = 403 FLOPs/byte ÷ 0.9 (16-bit) ≈ 432 users.
+
+### Mac vs L4 (Llama 3 8B, 1,000-token prompt)
+
+| | Mac M5 (4-bit, 5.3 GB) | L4 (16-bit, 16 GB) |
+|---|---|---|
+| TTFT | 2.11 s | 0.32 s (6.6× faster) |
+| Decode, 1 user | 23.3 tok/s | 16.8 tok/s |
+| Best total tok/s | 421 (3B, 64 users) | 1,597 (8B, 128 users) |
+
+- Prefill: the GPU wins on compute.
+- Decode for 1 user: the Mac wins because its 4-bit model is 3× smaller to read.
+- Many users: the GPU wins easily; one weight read is shared by 128 users.
