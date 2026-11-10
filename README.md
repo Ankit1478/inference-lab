@@ -184,3 +184,49 @@ python gpu_decode.py --fp8
 - Now prefill is the bottleneck: 152 of 198 ms per request. Decode per request fell from 133 to 46 ms.
 - KV cache is still 16-bit. At 138 users it is 10 GB, more than the weights. `--kv-cache-dtype fp8` would halve it.
 - Logs: `serve_log_fp8.txt`, `gpu_decode_log_fp8.txt`.
+
+### Prefix caching (`--shared`)
+
+Chatbot case: every request starts with the same 400-token system prompt, then its own 100-token question.
+With prefix caching ON, the system prompt is prefilled once and stored in KV once. FP8 server.
+
+```bash
+vllm serve meta-llama/Meta-Llama-3-8B-Instruct --quantization fp8 --max-model-len 4096   # prefix caching ON (default)
+python serve_test.py --fp8 --shared 400 --kv-tokens 89328 --rates 2,4,8,12,16,20
+```
+
+**Formulas: what changes**
+
+| | No cache | With cache |
+|---|---|---|
+| Prefill | 2 × params × (system prompt + question) ÷ compute | 2 × params × question only ÷ compute |
+| Tokens per user in KV | system prompt + question + output | question + output |
+| Users that fit | KV space ÷ tokens per user | (KV space − system prompt once) ÷ tokens per user, max 256 (vLLM `max_num_seqs`) |
+| Step time, decode share, max req/s | same formulas | same formulas (decode still reads the whole context) |
+
+**Maths (before running)**
+
+| | No cache | With cache |
+|---|---|---|
+| Prefill per request | 2 × 6.98B × 500 ÷ 46T = 152 ms | 2 × 6.98B × 100 ÷ 46T = 30 ms |
+| Users at once | 83,056 ÷ 600 = 138 | min(88,928 ÷ 200, 256) = 256 |
+| Decode per request | 100 × 63 ms ÷ 138 = 46 ms | 100 × 92 ms ÷ 256 = 36 ms |
+| Max req/s | 5.1 | 15.1 |
+
+**Measured (FP8, with cache)**
+
+| Sent req/s | Done req/s | TTFT p50 / p99 | TPOT p50 / p99 | E2E p50 / p99 | Users in system |
+|---|---|---|---|---|---|
+| 2 | 1.6 | 0.11 / 0.15 s | 38 / 39 ms | 3.9 / 4.0 s | 6 |
+| 4 | 3.5 | 0.13 / 0.17 s | 42 / 43 ms | 4.3 / 4.4 s | 15 |
+| 8 | 7.8 | 0.19 / 0.31 s | 58 / 72 ms | 6.0 / 7.3 s | 48 |
+| 12 | 9.4 | 0.26 / 0.39 s | 82 / 97 ms | 8.4 / 10.0 s | 76 |
+| 16 | 11.5 | 0.48 / 2.05 s | 155 / 197 ms | 15.9 / 20.0 s | 175 |
+| 20 | 11.9 | 0.72 / 9.47 s | 178 / 214 ms | 20.5 / 22.2 s | 232 |
+
+- Max ~12 req/s (maths 15.1, ~79%). No cache was 5.1, so 2.3x more.
+- vLLM log: prefix cache hit rate 80% = 400 of every 500 prompt tokens came from cache.
+- At 8 req/s, TTFT p99 is 0.31 s (no cache: 12.9 s).
+- Gap with maths: with 175+ users, TPOT is 155–178 ms, not the 92 ms maths says. Decode with many users uses memory less well (same as `gpu_decode`: 128 users = 58 ms measured vs 37 ms maths).
+- Prefill is no longer the bottleneck; decode is again.
+- Safe operating point: ~10 req/s, TTFT under 0.4 s. Full log: `serve_log_prefix.txt`.
