@@ -107,3 +107,41 @@ python gpu_decode.py       # 1 to 128 users
 - Prefill: the GPU wins on compute.
 - Decode for 1 user: the Mac wins because its 4-bit model is 3× smaller to read.
 - Many users: the GPU wins easily; one weight read is shared by 128 users.
+
+### Serving test: users arrive at random times (`serve_test.py`)
+
+Model as a server (`vllm serve`), requests sent at random times like real users.
+Each request: 500 input tokens, 100 output tokens.
+
+```bash
+vllm serve meta-llama/Meta-Llama-3-8B-Instruct --max-model-len 4096 --no-enable-prefix-caching   # terminal 1
+python serve_test.py                                                                             # terminal 2
+```
+
+**Maths (before running)**
+
+| | Formula | Value |
+|---|---|---|
+| Max users at once | KV space ÷ tokens per user = 29,610 ÷ 600 | 49 |
+| Prefill per request | 2 × 6.98B × 500 ÷ 46T (real compute) | 152 ms |
+| Decode per request | 100 × 65 ms ÷ 49 users | 133 ms |
+| Max requests/s | 1 ÷ (0.152 + 0.133) | 3.5 req/s |
+| E2E when alone | 0.15 s + 100 × 54 ms | 5.5 s |
+
+**Measured**
+
+| Sent req/s | Done req/s | TTFT p50 / p99 | TPOT p50 / p99 | E2E p50 / p99 | Users in system |
+|---|---|---|---|---|---|
+| 1 | 0.7 | 0.29 / 0.39 s | 69 / 72 ms | 7.1 / 7.4 s | 5 |
+| 2 | 1.7 | 0.37 / 0.72 s | 89 / 109 ms | 9.1 / 11.2 s | 15 |
+| 3 | 2.4 | 0.59 / 1.92 s | 137 / 163 ms | 14.4 / 16.7 s | 33 |
+| 4 | 2.7 | 2.22 / 4.67 s | 156 / 172 ms | 16.9 / 20.6 s | 44 |
+| 6 | 2.9 | 8.72 / 26.59 s | 158 / 242 ms | 24.6 / 35.1 s | 74 |
+| 8 | 3.0 | 21.59 / 43.57 s | 159 / 248 ms | 37.3 / 52.6 s | 102 |
+
+- Max ~3.0 req/s (maths 3.5, ~85%). Sending more only grows the queue.
+- TTFT blows up past ~4 req/s: 0.3 s → 21.6 s. Waiting explodes near 100% busy.
+- Users in system (Little's Law = done req/s × avg E2E) reaches 102, but only ~49 fit in KV memory; the rest wait in line.
+- TPOT 69 → 159 ms under load: new prompts' prefill runs inside the same steps as everyone's decode.
+- "Done req/s" counts the time to finish the last requests, so it reads a bit low at light load.
+- Safe operating point: ~2.5 req/s (~80% of max), TTFT stays under 1 s. Full log: `serve_log.txt`.
