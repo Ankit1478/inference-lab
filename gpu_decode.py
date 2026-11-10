@@ -11,6 +11,7 @@ How we measure (vLLM batches all users together for us):
 
     python gpu_decode.py
     python gpu_decode.py --users 1,8,32
+    python gpu_decode.py --fp8          (weights in 8-bit, embeddings stay 16-bit)
 """
 import argparse, time
 from transformers import AutoConfig
@@ -26,9 +27,11 @@ parser.add_argument("--model", default="meta-llama/Meta-Llama-3-8B-Instruct")
 parser.add_argument("--users", default="1,2,4,8,16,32,64,128")
 parser.add_argument("--prompt", type=int, default=100, help="input tokens per user")
 parser.add_argument("--steps", type=int, default=30, help="decode steps to time")
+parser.add_argument("--fp8", action="store_true", help="8-bit weights (vLLM --quantization fp8)")
 args = parser.parse_args()
+LAYER_BYTES = 1 if args.fp8 else BYTES_PER_PARAM   # FP8 shrinks layer weights; embeddings + lm_head stay 16-bit
 
-logfile = open("gpu_decode_log.txt", "w")
+logfile = open("gpu_decode_log_fp8.txt" if args.fp8 else "gpu_decode_log.txt", "w")
 def log(text=""):
     print(text)
     logfile.write(text + "\n")
@@ -46,24 +49,25 @@ head_size = getattr(cfg, "head_dim", None) or hidden // cfg.num_attention_heads
 params_per_layer = 2 * hidden * hidden + 2 * hidden * kv_heads * head_size + 3 * hidden * ffn
 decode_params = layers * params_per_layer + hidden * vocab      # + lm_head (every new token needs it)
 embed_params = hidden * vocab * (1 if cfg.tie_word_embeddings else 2)
-model_size = (layers * params_per_layer + embed_params) * BYTES_PER_PARAM
+model_size = layers * params_per_layer * LAYER_BYTES + embed_params * BYTES_PER_PARAM
 kv_per_token = 2 * layers * kv_heads * head_size * 2
 switch_point = COMPUTE_SPEED / MEMORY_SPEED                      # FLOPs per byte
-flops_per_byte_per_user = 2 * decode_params / model_size        # 16-bit: ~1 FLOP per byte
+flops_per_byte_per_user = 2 * decode_params / model_size        # 16-bit: ~1 FLOP per byte, FP8: ~2
 switch_users = switch_point / flops_per_byte_per_user
 
-log(f"\n{args.model}\n")
+log(f"\n{args.model}   {'FP8' if args.fp8 else '16-bit'}\n")
 log("KNOWN")
 log(f"  L4              {MEMORY_SPEED/1e9:.0f} GB/s memory, {COMPUTE_SPEED/1e12:.0f} TFLOPS compute")
 log(f"  Model size      {model_size/1e9:.2f} GB  (read once per step, shared by all users)")
 log(f"  Decode params   {decode_params/1e9:.2f}B  -> FLOPs per user per step = 2 x {decode_params/1e9:.2f}B = {2*decode_params/1e9:.1f} GFLOP")
 log(f"  KV per token    {kv_per_token/1e6:.3f} MB  (each user has their own)")
 log(f"  Switch point    {COMPUTE_SPEED/1e12:.0f}T / {MEMORY_SPEED/1e9:.0f}G = {switch_point:.0f} FLOPs per byte")
-log(f"  Per user        2 x params / model size = {flops_per_byte_per_user:.1f} FLOPs per byte (16-bit)")
+log(f"  Per user        2 x params / model size = {flops_per_byte_per_user:.1f} FLOPs per byte")
 log(f"  Switch users    {switch_point:.0f} / {flops_per_byte_per_user:.1f} = ~{switch_users:.0f} users  <- after this, compute-bound")
 
 # Model on GPU (prefix caching OFF, so every user does a real prefill)
-llm = LLM(args.model, max_model_len=args.prompt + args.steps + 64, enable_prefix_caching=False)
+llm = LLM(args.model, max_model_len=args.prompt + args.steps + 64, enable_prefix_caching=False,
+          quantization="fp8" if args.fp8 else None)
 prompt_tokens = llm.get_tokenizer().encode("The GPU reads the model weights from memory for every new word. " * 50)[:args.prompt]
 
 def timed(users, n_tokens):

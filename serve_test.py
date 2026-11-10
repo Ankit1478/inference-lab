@@ -15,6 +15,7 @@ Run (2 terminals on the VM)
     vllm serve meta-llama/Meta-Llama-3-8B-Instruct --max-model-len 4096 --no-enable-prefix-caching
     python serve_test.py
     python serve_test.py --rates 1,2,4
+    FP8: add --quantization fp8 to vllm serve, then  python serve_test.py --fp8 --kv-tokens <from log>
 """
 import argparse, asyncio, random, statistics, time
 from openai import AsyncOpenAI
@@ -24,7 +25,7 @@ MEMORY_SPEED = 300e9         # bytes/s
 REAL_COMPUTE = 46e12         # FLOPS we actually got in gpu_prefill.py (not the 121 on paper)
 
 # Llama 3 8B, 16-bit (from gpu_decode.py)
-MODEL_SIZE = 16.06e9         # bytes
+MODEL_SIZE = 16.06e9         # bytes  (FP8: 6.98B layer params x 1 byte + 1.05B embed/lm_head x 2 = 9.08 GB)
 DECODE_PARAMS = 7.50e9
 PREFILL_PARAMS = 6.98e9
 KV_PER_TOKEN = 0.131e6       # bytes
@@ -36,7 +37,10 @@ parser.add_argument("--input", type=int, default=500, help="prompt tokens per re
 parser.add_argument("--output", type=int, default=100, help="output tokens per request")
 parser.add_argument("--seconds", type=int, default=30, help="how long to send at each rate")
 parser.add_argument("--kv-tokens", type=int, default=29610, help="'GPU KV cache size' line in vLLM log")
+parser.add_argument("--fp8", action="store_true", help="server runs with --quantization fp8")
 args = parser.parse_args()
+if args.fp8:
+    MODEL_SIZE = 9.08e9
 
 client = AsyncOpenAI(base_url="http://localhost:8000/v1", api_key="none")
 
@@ -50,7 +54,7 @@ decode_share = args.output * step_time / max_users            # GPU time per req
 max_rate = 1 / (prefill_time + decode_share)
 e2e_alone = prefill_time + args.output * (MODEL_SIZE / MEMORY_SPEED)
 
-print(f"\n{args.model}   input {args.input}, output {args.output} tokens per request\n")
+print(f"\n{args.model}  {'FP8' if args.fp8 else '16-bit'}   input {args.input}, output {args.output} tokens per request\n")
 print("KNOWN -> MATHS")
 print(f"  Max users at once  = KV space / tokens per user")
 print(f"                     = {args.kv_tokens} / {tokens_per_user} = {max_users} users")

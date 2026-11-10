@@ -1,0 +1,29 @@
+
+meta-llama/Meta-Llama-3-8B-Instruct  FP8   input 500, output 100 tokens per request
+
+KNOWN -> MATHS
+  Max users at once  = KV space / tokens per user
+                     = 83056 / 600 = 138 users
+  Step time (full)   = (weights + users x KV/token x tokens) / memory speed
+                     = (9.08 GB + 138 x 0.131 MB x 550) / 300 GB/s = 63 ms
+  Prefill per request = 2 x prefill params x input / real compute
+                     = 2 x 6.98B x 500 / 46T = 152 ms of GPU time
+  Decode per request = output x step time / users sharing it
+                     = 100 x 63 ms / 138 = 46 ms of GPU time
+  Max requests/s     = 1 / (prefill + decode per request)
+                     = 1 / 0.198 s = 5.1 req/s   <- latency blows up after this
+  E2E when alone     = prefill + output x (model size / memory speed)
+                     = 0.15 s + 100 x 30 ms = 3.2 s
+
+UNKNOWN (measured)
+   sent |  done | out tok/s | TTFT p50    p99 | TPOT p50    p99 | E2E p50    p99 | users in
+  req/s | req/s |           |        s      s |       ms     ms |       s      s |   system
+      1 |   0.7 |        67 |     0.17   0.26 |       39     42 |     4.0    4.3 |      2.7
+      2 |   1.6 |       158 |     0.20   0.43 |       46     57 |     4.8    5.9 |      7.7
+      4 |   3.9 |       389 |     0.38   0.86 |       83    100 |     8.5   10.4 |     33.2
+      6 |   4.8 |       476 |     0.52   1.37 |      141    179 |    14.5   18.1 |     63.3
+      8 |   5.1 |       506 |     1.91  12.86 |      252    278 |    26.9   29.4 |    131.3
+     10 |   4.9 |       492 |     4.39  18.52 |      260    357 |    31.0   41.1 |    159.6
+
+  users in system = done req/s x avg E2E   (Little's Law)
+  Maths said: max ~5.1 req/s, ~138 users at once, E2E alone ~3.2 s

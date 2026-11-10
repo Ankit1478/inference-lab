@@ -145,3 +145,42 @@ python serve_test.py                                                            
 - TPOT 69 → 159 ms under load: new prompts' prefill runs inside the same steps as everyone's decode.
 - "Done req/s" counts the time to finish the last requests, so it reads a bit low at light load.
 - Safe operating point: ~2.5 req/s (~80% of max), TTFT stays under 1 s. Full log: `serve_log.txt`.
+
+### 16-bit vs FP8 (`--fp8`)
+
+Same tests, but layer weights in 8-bit. Embeddings + lm_head stay 16-bit.
+
+```bash
+vllm serve meta-llama/Meta-Llama-3-8B-Instruct --quantization fp8 --max-model-len 4096 --no-enable-prefix-caching
+python serve_test.py --fp8 --kv-tokens 83056
+python gpu_decode.py --fp8
+```
+
+**Maths (before running)**
+
+| | Formula | Value |
+|---|---|---|
+| Model size | 6.98B × 1 byte + 1.05B embed/lm_head × 2 bytes | 9.08 GB (vLLM log: 8.47 GiB = 9.09 GB) |
+| Decode, 1 user | 300 GB/s ÷ 9.08 GB | 33 tok/s |
+| KV space left | vLLM log | 83,056 tokens (was 29,610) |
+| Max users at once | 83,056 ÷ 600 | 138 (was 49) |
+| Max requests/s | 1 ÷ (0.152 prefill + 0.046 decode) | 5.1 req/s |
+
+**Measured**
+
+| | 16-bit | FP8 | Change |
+|---|---|---|---|
+| Decode, 1 user | 16.9 tok/s | 27.8 tok/s | 1.6x |
+| Decode, 128 users total | 1,597 tok/s | 2,192 tok/s | 1.4x |
+| Users that fit in KV | 49 | 138 | 2.8x |
+| TPOT alone | 69 ms | 39 ms | 1.8x |
+| E2E alone | 7.1 s | 4.0 s | 1.8x |
+| Max req/s | 3.0 | 5.1 | 1.7x |
+| TTFT p50 at 4 req/s | 2.22 s | 0.38 s | 6x |
+
+- Max req/s matched maths exactly: 5.1.
+- Weights 1.8x smaller, but decode only 1.6x faster: 9.08 GB / 36 ms = 252 GB/s (~84%, was ~90%). FP8 adds scaling + converting activations each step.
+- Biggest win is KV space: 2.8x more users fit, so the queue starts much later.
+- Now prefill is the bottleneck: 152 of 198 ms per request. Decode per request fell from 133 to 46 ms.
+- KV cache is still 16-bit. At 138 users it is 10 GB, more than the weights. `--kv-cache-dtype fp8` would halve it.
+- Logs: `serve_log_fp8.txt`, `gpu_decode_log_fp8.txt`.

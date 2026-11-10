@@ -1,0 +1,128 @@
+
+meta-llama/Meta-Llama-3-8B-Instruct   FP8
+
+KNOWN
+  L4              300 GB/s memory, 121 TFLOPS compute
+  Model size      9.08 GB  (read once per step, shared by all users)
+  Decode params   7.50B  -> FLOPs per user per step = 2 x 7.50B = 15.0 GFLOP
+  KV per token    0.131 MB  (each user has their own)
+  Switch point    121T / 300G = 403 FLOPs per byte
+  Per user        2 x params / model size = 1.7 FLOPs per byte
+  Switch users    403 / 1.7 = ~244 users  <- after this, compute-bound
+
+UNKNOWN (measured vs maths)
+
+--- 1 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 1 x 0.131 MB x 115 = 9.10 GB
+  Memory time       = bytes read / memory speed
+                    = 9.10 GB / 300 GB/s = 30.3 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 1 / 121T = 0.1 ms
+  KV cache total    = 0.02 GB
+  Maths step time   = max(memory, compute) = 30.3 ms  (memory-bound)
+  Measured step     = 36.0 ms
+  Total tokens/s    = 28   (maths 33)
+  Tokens/s per user = 27.8   (maths 33.0)
+
+--- 2 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 2 x 0.131 MB x 115 = 9.11 GB
+  Memory time       = bytes read / memory speed
+                    = 9.11 GB / 300 GB/s = 30.4 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 2 / 121T = 0.2 ms
+  KV cache total    = 0.03 GB
+  Maths step time   = max(memory, compute) = 30.4 ms  (memory-bound)
+  Measured step     = 36.3 ms
+  Total tokens/s    = 55   (maths 66)
+  Tokens/s per user = 27.6   (maths 32.9)
+
+--- 4 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 4 x 0.131 MB x 115 = 9.14 GB
+  Memory time       = bytes read / memory speed
+                    = 9.14 GB / 300 GB/s = 30.5 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 4 / 121T = 0.5 ms
+  KV cache total    = 0.06 GB
+  Maths step time   = max(memory, compute) = 30.5 ms  (memory-bound)
+  Measured step     = 37.7 ms
+  Total tokens/s    = 106   (maths 131)
+  Tokens/s per user = 26.5   (maths 32.8)
+
+--- 8 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 8 x 0.131 MB x 115 = 9.20 GB
+  Memory time       = bytes read / memory speed
+                    = 9.20 GB / 300 GB/s = 30.7 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 8 / 121T = 1.0 ms
+  KV cache total    = 0.12 GB
+  Maths step time   = max(memory, compute) = 30.7 ms  (memory-bound)
+  Measured step     = 36.5 ms
+  Total tokens/s    = 219   (maths 261)
+  Tokens/s per user = 27.4   (maths 32.6)
+
+--- 16 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 16 x 0.131 MB x 115 = 9.32 GB
+  Memory time       = bytes read / memory speed
+                    = 9.32 GB / 300 GB/s = 31.1 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 16 / 121T = 2.0 ms
+  KV cache total    = 0.24 GB
+  Maths step time   = max(memory, compute) = 31.1 ms  (memory-bound)
+  Measured step     = 37.5 ms
+  Total tokens/s    = 427   (maths 515)
+  Tokens/s per user = 26.7   (maths 32.2)
+
+--- 32 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 32 x 0.131 MB x 115 = 9.56 GB
+  Memory time       = bytes read / memory speed
+                    = 9.56 GB / 300 GB/s = 31.9 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 32 / 121T = 4.0 ms
+  KV cache total    = 0.48 GB
+  Maths step time   = max(memory, compute) = 31.9 ms  (memory-bound)
+  Measured step     = 40.7 ms
+  Total tokens/s    = 787   (maths 1004)
+  Tokens/s per user = 24.6   (maths 31.4)
+
+--- 64 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 64 x 0.131 MB x 115 = 10.05 GB
+  Memory time       = bytes read / memory speed
+                    = 10.05 GB / 300 GB/s = 33.5 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 64 / 121T = 7.9 ms
+  KV cache total    = 0.96 GB
+  Maths step time   = max(memory, compute) = 33.5 ms  (memory-bound)
+  Measured step     = 46.6 ms
+  Total tokens/s    = 1374   (maths 1911)
+  Tokens/s per user = 21.5   (maths 29.9)
+
+--- 128 users ---
+  Bytes read/step   = weights + users x KV per token x tokens
+                    = 9.08 GB + 128 x 0.131 MB x 115 = 11.01 GB
+  Memory time       = bytes read / memory speed
+                    = 11.01 GB / 300 GB/s = 36.7 ms
+  Compute time      = 2 x params x users / compute speed
+                    = 2 x 7.50B x 128 / 121T = 15.9 ms
+  KV cache total    = 1.93 GB
+  Maths step time   = max(memory, compute) = 36.7 ms  (memory-bound)
+  Measured step     = 58.4 ms
+  Total tokens/s    = 2192   (maths 3488)
+  Tokens/s per user = 17.1   (maths 27.2)
+
+SUMMARY
+  users |  step ms   maths | total tok/s   maths | per user | bound
+      1 |     36.0    30.3 |          28      33 |     27.8 | memory-bound
+      2 |     36.3    30.4 |          55      66 |     27.6 | memory-bound
+      4 |     37.7    30.5 |         106     131 |     26.5 | memory-bound
+      8 |     36.5    30.7 |         219     261 |     27.4 | memory-bound
+     16 |     37.5    31.1 |         427     515 |     26.7 | memory-bound
+     32 |     40.7    31.9 |         787    1004 |     24.6 | memory-bound
+     64 |     46.6    33.5 |        1374    1911 |     21.5 | memory-bound
+    128 |     58.4    36.7 |        2192    3488 |     17.1 | memory-bound
